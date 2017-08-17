@@ -28,8 +28,6 @@ sub new
     my $self = { };
     bless $self, ref($class) || $class || 'Exif';
 
-    $self->{'m_endian'} = _local_endian();
-
     STDERR->autoflush();
 
     my @args = @_;
@@ -111,12 +109,15 @@ sub init
         }
     }
 
+    $self->{'m_endian'} = _local_endian();
+    info( "Local Machine endian: " . $self->{'m_endian'} );
+
     if ( $buffer ) {
         info("Setting buffer");
         $self->buffer($buffer);
     }
     elsif ( $filename ) {
-        info("Setting filename");
+        info("Setting filename: $filename");
         $self->filename($filename);
     }
 }
@@ -572,34 +573,48 @@ sub readIFDTag {
     }
     if ( 0x0112 == $tag && 3 == $fmt  ) {
         # q{Orientation};
+        $self->{'Orientation_mirrored'} = 0;
         if ( $val == 1 ) {
             $str = q{normal (upper left)};
+            $self->{'Orientation_angle'} = 0;
         }
         elsif ($val = 8 ) {
             $str = q{-90 counter-clockwise (lower left)};
+            $self->{'Orientation_angle'} = 270;
         }
         elsif ($val = 3 ) {
             $str = q{upside-down (lower right)};
+            $self->{'Orientation_angle'} = 180;
         }
         elsif ($val = 6 ) {
             $str = q{+90 clockwise (upper right)};
+            $self->{'Orientation_angle'} = 90;
         }
         # Mirrored versions
         elsif ( $val == 2 ) {
             $str = q{normal (mirrored)};
+            $self->{'Orientation_angle'} = 0;
+            $self->{'Orientation_mirrored'} = 1;
         }
         elsif ($val = 7 ) {
             $str = q{-90 counter-clockwise (mirrored)};
+            $self->{'Orientation_angle'} = 270;
+            $self->{'Orientation_mirrored'} = 1;
         }
         elsif ($val = 4 ) {
             $str = q{upside-down (mirrored)};
+            $self->{'Orientation_angle'} = 180;
+            $self->{'Orientation_mirrored'} = 1;
         }
         elsif ($val = 5 ) {
             $str = q{+90 clockwise (mirrored)};
+            $self->{'Orientation_angle'} = 90;
+            $self->{'Orientation_mirrored'} = 1;
         }
         # Undefined versions
         elsif ($val = 9 ) {
             $str = q{undefined};
+            $self->{'Orientation_angle'} = undef;
         }
 
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
@@ -664,6 +679,45 @@ sub readIFDTag {
         my $str = _strInBuff( $buff, $noc, $val );
         debug( sprintf( "0x9009: %s\n", $str) );
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
+    }
+    elsif ( 0x9209 == $tag ) {
+        # q{Flash};  MS calls this flash mode
+        #debug( sprintf( "FLASH MODE: %04X\n", $val) );
+        my $str = "$val";
+        my @feat;
+        # Bit 0 Flash fired
+        if ( 0 == (0x0001 & $val) ) {
+            push @feat, ( q{Flash did not fire} );
+        }
+        else {
+            push @feat, ( q{Flash fired} );
+        }
+        # Bits 1,2 returned light
+        # Bits 3,4 flash mode
+        if ( 0x0018 & $val ) {
+            if ( ( 0x0010 & $val ) && ( 0x0008 & $val ) ) {
+                push @feat, ( q{auto mode} );
+            }
+            elsif ( ( 0x0010 & $val ) && 0 == ( 0x0008 & $val ) ) {
+                push @feat, ( q{user surpressed} );
+            }
+            elsif ( 0 == ( 0x0010 & $val ) && ( 0x0008 & $val ) ) {
+                push @feat, ( q{user forced on} );
+            }
+        } # else is unknown flash mode
+        # Bit 6 red-eye reduction mode
+        if ( 0x0040 == ( 0x0040 & $val ) ) {
+            push @feat, ( q{red eye reduction mode} );
+        }
+        # Bit 5 flash function exists
+        if ( 0x0020 == ( 0x0020 & $val ) ) {
+            push @feat, ( "No flash installed" );
+        }
+
+        if ( 0 < scalar @feat  ) {
+            $str .= q{: } . join( q{, }, @feat );
+            $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
+        }
     }
     elsif ( 0x927c == $tag && 7 == $fmt ) {
         # q{MakerNote};
@@ -764,6 +818,7 @@ sub model
     return q{};
 }
 
+
 sub orientation
 {
     my $self = shift;
@@ -777,6 +832,42 @@ sub orientation
 
     if ( exists( $self->{'Orientation'} ) ) {
         return $self->{'Orientation'};
+    }
+    return q{};
+}
+
+
+sub clockwiseAngle
+{
+    my $self = shift;
+
+    my $name = ref($self) || $self || 'Exif';
+    $name .= q{->clockwiseAngle()};
+
+    if ( ! exists( $self->{'Exif_read'} ) || 0 == $self->{'Exif_read'} ) {
+        critical( "$name: called before anything was read.");
+    }
+
+    if ( exists( $self->{'Orientation_angle'} ) ) {
+        return $self->{'Orientation_angle'};
+    }
+    return q{};
+}
+
+
+sub imageMirrored
+{
+    my $self = shift;
+
+    my $name = ref($self) || $self || 'Exif';
+    $name .= q{->imageMirrored()};
+
+    if ( ! exists( $self->{'Exif_read'} ) || 0 == $self->{'Exif_read'} ) {
+        critical( "$name: called before anything was read.");
+    }
+
+    if ( exists( $self->{'Orientation_mirrored'} ) ) {
+        return $self->{'Orientation_mirrored'};
     }
     return q{};
 }
@@ -972,61 +1063,39 @@ sub _strInBuff
         }
     }
     else {
-        if ( 'I' eq _local_endian() ) {
-            for ( my $cx = 0; $cx<$noc; $cx++ ) {
-                my $mul = 0xFF;
-                my $zro = ( 2 * $cx );
-                my $shft = ( 8 * $cx );
+        for ( my $cx = 0; $cx<$noc; $cx++ ) {
+            my $mul = 0xFF;
+            my $zro = ( 2 * $cx );
+            my $shft = ( 8 * $cx );
 
-                # $cx 0, mul is 0xFF
-                # $cx 1, mul is 0xFF00
-                # $cx 2, mul is 0xFF0000
-                # $cx 3, mul is 0xFF000000
+            # $cx 0, mul is 0xFF
+            # $cx 1, mul is 0xFF00
+            # $cx 2, mul is 0xFF0000
+            # $cx 3, mul is 0xFF000000
 
-                if ( $zro ) {
-                    my $hex = "FF";
-                    $hex .= ( "0" x $zro );
-                    # Assign new $mul
-                    $mul = hex($hex);
-                }
-
-                my $mask = ( $val & $mul );
-#                debug( sprintf( "VAL (%x)\n", $val ));
-#                debug( sprintf( "MASK (%x)\n", $mask ));
-                my $cch = ( $mask >>$shft );
-                if ( 0 == $cch ) {
-                    return $str;
-                }
-                $str .= chr( $cch );
+            if ( $zro ) {
+                my $hex = "FF";
+                $hex .= ( "0" x $zro );
+                # Assign new $mul
+                $mul = hex($hex);
             }
-        }
-        else {
-            # 'M' style to string ... never been tested...
-            for ( my $cx = 0; $cx<$noc; $cx++ ) {
-                my $mul = 0xFF;
-                my $reverse = ( $noc - $cx );
-                my $zro = ( 2 * $reverse );
-                my $shft = ( 8 * $reverse );
 
-                # $reverse 3, mul is 0xFF000000
-                # $reverse 2, mul is 0xFF0000
-                # $reverse 1, mul is 0xFF00
-                # $reverse 0, mul is 0xFF
-
-                if ( $zro ) {
-                    my $hex = "FF";
-                    $hex .= ( "0" x $zro );
-                    # Assign new $mul
-                    $mul = hex($hex);
-                }
-
-                my $mask = ( $val & $mul );
-                my $cch = ( $mask >>$shft );
-                if ( 0 == $cch ) {
-                    return $str;
-                }
-                $str .= chr( $cch );
+            debug( sprintf( "BYTE %d: mul 0x%08x:  val 0x%08x",
+                    $cx, $mul, $val )
+            );
+            my $mask = ( $val & $mul );
+            debug( sprintf( "BYTE %d: mul 0x%08x & val 0x%08x = 0x%08x",
+                    $cx, $mul, $val, $mask )
+            );
+            my $cch = ( $mask >>$shft );
+            debug( sprintf(
+                    "BYTE %d: pre-shift value  0x%08x >> %d = 0x%02x (%s)",
+                    $cx, $mask, $shft, $cch, chr($cch) )
+            );
+            if ( 0 == $cch ) {
+                return $str;
             }
+            $str .= chr( $cch );
         }
     }
 
@@ -1297,10 +1366,10 @@ sub _formatName {
         return q{signed rational (8B)};
     }
     elsif ( $fmt == 11 ) {
-        return q{single float (4B unsupported)};
+        return q{single float (4B)};
     }
     elsif ( $fmt == 12 ) {
-        return q{double float (8B unsupported)};
+        return q{double float (8B)};
     }
 }
 
@@ -1330,7 +1399,7 @@ sub _expValueFromFormat {
         my $den = _bytesToInt ( $buff, $endian, $val+4, 4 );
         my $ret = ( $pri / $den );
 #        elog( 'debug', "Unsigned rational at ($val): $pri / $den = $ret" );
-        return ($ret);
+        return sprintf("%.16lg", $ret );
     }
     elsif ( $fmt == 6 ) {
         #return q{signed byte};
@@ -1392,17 +1461,58 @@ sub _expValueFromFormat {
         }
         my $ret = ( $pri / $den );
 #        elog( 'debug', "Signed rational at ($val): $pri / $den = $ret" );
-        return ($ret) || 0;
+        return sprintf("%.16lg", $ret || 0 );
     }
     elsif ( $fmt == 11 ) {
-        #return q{single float (4B unsupported)};
-        # TODO figure this out
-        return undef;
+        #return q{single float (4B)};
+
+        # NOTE the 4 bytes has ALREADY endian switched to native.
+        #    done by _bytesToInt()
+
+        # Try response from...
+        # https://stackoverflow.com/questions/770342/how-can-i-convert-four-characters-into-a-32-bit-ieee-754-float-in-perl
+
+#my $word = ($byte0 << 24) + ($byte1 << 16) + ($byte2 << 8) + $byte3;
+#Now extract the parts of the word: the sign bit, exponent and mantissa:
+#
+#my $sign = ($word & 0x80000000) ? -1 : 1;
+#my $expo = (($word & 0x7F800000) >> 23) - 127;
+#my $mant = ($word & 0x007FFFFF | 0x00800000);
+#Assemble your float:
+#
+#my $num = $sign * (2 ** $expo) * ( $mant / (1 << 23));
+
+        my $sign = ( $val & 0x80000000) ? -1 : 1;
+        my $expo = (($val & 0x7F800000) >> 23) - 127;
+        my $mant = ( $val & 0x007FFFFF
+                          | 0x00800000);
+        my $ret = $sign * (2 ** $expo) * ( $mant / (1 << 23));
+
+        return sprintf("%.16lg", $ret );
     }
     elsif ( $fmt == 12 ) {
-        #return q{double float (8B unsupported)};
-        # TODO figure this out
-        return undef;
+        #   This is specifically converting IEEE format numbers, it is
+        #   KNOWN to not be "portable", because it is an external Exif standard
+        # Scoped to this block.
+        no warnings 'portable';
+
+        #return q{double float (8B)};
+
+        # NOTE the 8 bytes MAY have to be endian switched to native.
+        #    done by _bytesToInt()
+
+        my $tmp = _bytesToInt($buff, $endian, $val, 8);
+
+        # Direct conversion from above code snip -- with the help of:
+        # https://en.wikipedia.org/wiki/Double-precision_floating-point_format
+
+        my $sign = ( $tmp & 0x8000000000000000 ) ? -1 : 1;
+        my $expo = (($tmp & 0x7FF0000000000000 ) >> 52) - 1023;
+        my $mant = ( $tmp & 0x000FFFFFFFFFFFFF
+                          | 0x0010000000000000 );
+        my $ret = $sign * (2 ** $expo) * ( $mant / (1 << 52));
+
+        return sprintf("%.16lg", $ret );
     }
 }
 
