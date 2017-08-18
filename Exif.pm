@@ -21,7 +21,6 @@ our $ERROR = q{};
 our $DEBUG = q{};
 my $VERBOSE = 0;
 
-
 sub new
 {
     my $class = shift;
@@ -60,8 +59,10 @@ sub init
             $opts = $args[0];
 
             if ( exists $opts->{'verbose'} ) {
-                $VERBOSE++;
-                info("Set verbose");
+                if ( 0 < $opts->{'verbose'} ) {
+                    $VERBOSE = $opts->{'verbose'};
+                }
+                info("Set verbose ($VERBOSE)");
             }
             if ( exists $opts->{'filename'} ) {
                 $filename = $opts->{'filename'};
@@ -94,7 +95,7 @@ sub init
     for ( my $cx = 0; $cx < $#args; $cx++ ) {
         if ( q{verbose} eq $args[$cx] ) {
             $VERBOSE++;
-            info("Setting verbose");
+            info("Set verbose ($VERBOSE)");
         }
         elsif ( q{buffer} eq $args[$cx] ) {
             $buffer = $args[++$cx];
@@ -165,18 +166,17 @@ sub filename
     open( $fh, '<', $fn ) || critical( "$name: Unable to open: $!");
     binmode $fh;
 
-    my $tenK = q{};
-    read( $fh, $tenK, 11000, 0 ) || critical( "$name: Unable to read: $!");
+    my $sixtyFourK = q{};
+    read( $fh, $sixtyFourK, 64536, 0 ) || critical( "$name: Unable to read: $!");
     close ( $fh );
 
-    if ( length($tenK) ) {
-        $self->buffer($tenK);
+    if ( length($sixtyFourK) ) {
+        $self->buffer($sixtyFourK);
     }
     else {
         critical( "$name: No data read from filename $fn." );
     }
 }
-
 
 
 sub read
@@ -294,7 +294,7 @@ sub readExifEnvelope
 TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
         if ( ! defined $endian ) {
             # 49492a00 (Little Endian)
-            if ( ( 0x49 == ($buff->[$cx]) )
+            if (   ( 0x49 == ($buff->[$cx]) )
                 && ( 0x49 == ($buff->[$cx+1]) )
                 && ( 0x2a == ($buff->[$cx+2]) )
                 && ( 0x00 == ($buff->[$cx+3]) ) ) {
@@ -302,15 +302,19 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
                 $endian = 'I';
             }
             elsif ( ( 0x4d == ($buff->[$cx]) )
-                && ( 0x4d == ($buff->[$cx+1]) )
-                && ( 0x00 == ($buff->[$cx+2]) )
-                && ( 0x2a == ($buff->[$cx+3]) ) ) {
+                &&  ( 0x4d == ($buff->[$cx+1]) )
+                &&  ( 0x00 == ($buff->[$cx+2]) )
+                &&  ( 0x2a == ($buff->[$cx+3]) ) ) {
                 #$cx += 4;
                 $endian = 'M';
             }
             else {
                 next TP;
             }
+
+            vdebug( sprintf( "%012d: EXIF START:\n%s",
+                $cx, _hexDump($buff, $cx, 8) )
+            );
 
             info( "$name: Exif endian is $endian.\n" );
 
@@ -320,6 +324,10 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
             $cx = 0;
 
             # Header was just found
+            vdebug( sprintf( "%012d: IFD Offset:\n%s",
+                $cx, _hexDump($buff, $cx, 4) )
+            );
+
             my $offset = _bytesToInt( $buff, $endian, $cx+4, 4 );
             if ( 8 > $offset ) {
                 my $err = sprintf (
@@ -343,29 +351,30 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
         } # If header does exist (starting at this else)
         else {
             # header does exist IFD comes after
+
+            my $cur_title;
             if ( ! exists( $self->{'Exif_IFD'} ) ) {
                 $self->{'Exif_IFD'} = {};
-                my $tmp = $self->{'Exif_titles'}->[$self->{'Exif_cnt'}];
+                $cur_title = $self->{'Exif_titles'}->[$self->{'Exif_cnt'}];
                 $self->{'Exif_IFD'}->{$self->{'Exif_cnt'}} = {
-                        'comment' =>    $tmp,
+                        'comment' =>    $cur_title,
                     };
-                debug( "TITLE: ", $tmp );
             }
             else {
-                my $tmp = $self->{'Exif_titles'}->[$self->{'Exif_cnt'}];
+                $cur_title = $self->{'Exif_titles'}->[$self->{'Exif_cnt'}];
                 $self->{'Exif_IFD'}->{$self->{'Exif_cnt'}} = {
-                        'comment' =>    $tmp,
+                        'comment' =>    $cur_title,
                     };
-                debug( "TITLE: ", $tmp );
-                if ( $tmp =~ m{^GPS} ) {
+                if ( $cur_title =~ m{^GPS} ) {
                     $self->{'Exif_IFD'}->{$self->{'Exif_cnt'}}->{'Type'} = q{GPS};
                 }
-                elsif ( $tmp =~ m{^MakerNote} && $self->{'Make'} eq q{Canon} ) {
+                elsif ( $cur_title =~ m{^MakerNote} && $self->{'Make'} eq q{Canon} ) {
                     $self->{'Exif_IFD'}->{$self->{'Exif_cnt'}}->{'Type'} = q{MakerCanon};
                 }
             }
-
             if ( $cx == $self->{'Exif_offset'}->[$self->{'Exif_cnt'}] ) {
+
+                debug( "IFD TITLE: ", $cur_title );
 
                 debug( sprintf(
                     qq{%s: IFD offset (%d) identified, reading\n},
@@ -411,10 +420,10 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
                     push @{$self->{'Exif_offset'}}, ( $cx );
                     push @{$self->{'Exif_titles'}}, ( "MakerNote" );
 
-                    if ( $self->{'Make'} eq 'Canon' ) {
-                        # CANON reads like another IFD.
-                    }
-                    else {
+#                    if ( $self->{'Make'} eq 'Canon' ) {
+#                        # CANON reads like another IFD.
+#                    }
+#                    else {
                         my $end = $cx + $self->{'MakerNote_size'};
                         debug("Undoing MakerNote offset");
                         pop @{$self->{'Exif_offset'}};
@@ -422,7 +431,7 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
 
                         $cx = $#{$buff};
                         next TP;
-                    }
+#                    }
                 }
                 else {
                     $cx = $#{$buff};
@@ -469,6 +478,10 @@ sub readIFD {
         $ifd->{'record'} = [];
     }
 
+    vdebug( sprintf( "%012d: IFD Count:\n%s",
+        $cx, _hexDump($buff, $cx, 2) )
+    );
+
     # Record count first.
     my $ifd_cnt = _bytesToInt( $buff, $endian, $cx, 2 );
     $ifd->{'count'} += $ifd_cnt;
@@ -477,6 +490,11 @@ sub readIFD {
 
     # Each record (needs a counter)
     foreach my $ifd_cx ( 0 .. $ifd_cnt-1 ) {
+
+        vdebug( sprintf( "%012d: IFD Record %d:\n%s",
+            $cx, $ifd_cx, _hexDump($buff, $cx, 12) )
+        );
+
         my $tag = _bytesToInt( $buff, $endian, $cx, 2 );
         my $fmt = _bytesToInt( $buff, $endian, $cx+2, 2 );
         my $noc = _bytesToInt( $buff, $endian, $cx+4, 4 );
@@ -492,6 +510,9 @@ sub readIFD {
 
         $self->readIFDTag($buff, $ifd, $ifd_cx);
     }
+    vdebug( sprintf( "%012d: Next IFD Offset:\n%s",
+        $cx, _hexDump($buff, $cx, 4) )
+    );
     my $off = _bytesToInt( $buff, $endian, $cx, 4 );
     if ( $off ) {
         return $off
@@ -533,6 +554,10 @@ sub readIFDTag {
     my $noc = $ifd->{'record'}->[$ifd_cx]->{'noc'};
     my $val = $ifd->{'record'}->[$ifd_cx]->{'val'};
 
+    debug( sprintf( "TAG 0x%04x: FMT 0x%04x: NOC 0x%08x: VAL 0x%08x",
+            $tag, $fmt, $noc, $val )
+    );
+
     # Tag Name (DEFAULTs to the Hex of the Tag)
     if ( q{MakerCanon} eq $type ) {
         $ifd->{'record'}->[$ifd_cx]->{'tag_name'} = _canonMakerNoteTagName($tag);
@@ -573,46 +598,47 @@ sub readIFDTag {
     }
     if ( 0x0112 == $tag && 3 == $fmt  ) {
         # q{Orientation};
+        my $num = _readOrientation($val);
         $self->{'Orientation_mirrored'} = 0;
-        if ( $val == 1 ) {
+        if (1 == $num) {
             $str = q{normal (upper left)};
             $self->{'Orientation_angle'} = 0;
         }
-        elsif ($val = 8 ) {
+        elsif (8 == $num) {
             $str = q{-90 counter-clockwise (lower left)};
             $self->{'Orientation_angle'} = 270;
         }
-        elsif ($val = 3 ) {
+        elsif (3 == $num) {
             $str = q{upside-down (lower right)};
             $self->{'Orientation_angle'} = 180;
         }
-        elsif ($val = 6 ) {
+        elsif (6 == $num) {
             $str = q{+90 clockwise (upper right)};
             $self->{'Orientation_angle'} = 90;
         }
         # Mirrored versions
-        elsif ( $val == 2 ) {
+        elsif (2 == $num) {
             $str = q{normal (mirrored)};
             $self->{'Orientation_angle'} = 0;
             $self->{'Orientation_mirrored'} = 1;
         }
-        elsif ($val = 7 ) {
+        elsif (7 == $num) {
             $str = q{-90 counter-clockwise (mirrored)};
             $self->{'Orientation_angle'} = 270;
             $self->{'Orientation_mirrored'} = 1;
         }
-        elsif ($val = 4 ) {
+        elsif (4 == $num) {
             $str = q{upside-down (mirrored)};
             $self->{'Orientation_angle'} = 180;
             $self->{'Orientation_mirrored'} = 1;
         }
-        elsif ($val = 5 ) {
+        elsif (5 == $num) {
             $str = q{+90 clockwise (mirrored)};
             $self->{'Orientation_angle'} = 90;
             $self->{'Orientation_mirrored'} = 1;
         }
         # Undefined versions
-        elsif ($val = 9 ) {
+        elsif (9 == $num) {
             $str = q{undefined};
             $self->{'Orientation_angle'} = undef;
         }
@@ -621,17 +647,26 @@ sub readIFDTag {
 
         # Top Level Tag
         $self->{'Orientation'} = $str;
-        debug( "Orientation: $str\n" );
+        my $mir = $self->{'Orientation_mirrored'}?", mirrored":q{};
+        debug( "Orientation: $str$mir\n" );
+    }
+    elsif ( 0x011a == $tag ) {
+        # XResolution
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str dpi};
+    }
+    elsif ( 0x011b == $tag ) {
+        # YResolution
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str dpi};
     }
     elsif ( 0x0128 == $tag && 3 == $fmt  ) {
         # q{ResolutionUnit};
-        if ( $val == 1 ) {
+        if (1 == $str) {
             $str = q{none};
         }
-        elsif ($val = 2 ) {
+        elsif (2 == $str) {
             $str = q{inch};
         }
-        elsif ($val = 3 ) {
+        elsif (3 == $str) {
             $str = q{centimeter};
         }
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
@@ -649,6 +684,20 @@ sub readIFDTag {
         push @{$self->{'Exif_offset'}}, ( $val );
         push @{$self->{'Exif_titles'}}, ( "SubIFD.a" );
     }
+    elsif ( 0x829a == $tag ) {
+        # ExposureTime
+        if ( 0 < $str && 1 > $str ) {
+            my $denom = 1/$str;
+            if ( int($denom) == $denom ) {
+                $str = qq{1/$denom};
+            }
+        }
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str sec.};
+    }
+    elsif ( 0x829d == $tag ) {
+        # FNumber
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{f/$str};
+    }
     elsif ( 0x8769 == $tag && 4 == $fmt && 1 == $noc ) {
         # q{Exif SubIFD};
 #        debug( "Exif SubIFD: $val\n" );
@@ -663,9 +712,13 @@ sub readIFDTag {
         push @{$self->{'Exif_offset'}}, ( $val );
         push @{$self->{'Exif_titles'}}, ( "GPSInfo" );
     }
+    elsif ( 0x8827 == $tag ) {
+        # ISO Speed
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{ISO-$val};
+    }
     elsif ( 0x9000 == $tag && 7 == $fmt ) {
         # q{Unknown};
-        my $str = _strInBuff( $buff, $noc, $val );
+        $str = _strInBuff( $buff, $noc, $val );
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x9003 == $tag ) {
@@ -676,14 +729,42 @@ sub readIFDTag {
     }
     elsif ( 0x9009 == $tag && 7 == $fmt ) {
         # q{Unknown};
-        my $str = _strInBuff( $buff, $noc, $val );
+        $str = _strInBuff( $buff, $noc, $val );
         debug( sprintf( "0x9009: %s\n", $str) );
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
+    }
+    elsif ( 0x9207 == $tag ) {
+        # MeteringMode
+            # $str already has the value.
+        if ( 0 == $str ) {
+            $str .= q{: Unknown};
+        }
+        elsif ( 1 == $str ) {
+            $str .= q{: Average};
+        }
+        elsif ( 2 == $str ) {
+            $str .= q{: CenterWeightedAverage};
+        }
+        elsif ( 3 == $str ) {
+            $str .= q{: Spot};
+        }
+        elsif ( 4 == $str ) {
+            $str .= q{: MultiSpot};
+        }
+        elsif ( 5 == $str ) {
+            $str .= q{: Pattern};
+        }
+        elsif ( 6 == $str ) {
+            $str .= q{: Partial};
+        }
+        elsif ( 255 == $str ) {
+            $str .= q{: other};
+        }
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x9209 == $tag ) {
         # q{Flash};  MS calls this flash mode
         #debug( sprintf( "FLASH MODE: %04X\n", $val) );
-        my $str = "$val";
         my @feat;
         # Bit 0 Flash fired
         if ( 0 == (0x0001 & $val) ) {
@@ -719,6 +800,11 @@ sub readIFDTag {
             $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
         }
     }
+    elsif ( 0x920a == $tag ) {
+        # FocalLength
+        $str = qq{$str mm};
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
+    }
     elsif ( 0x927c == $tag && 7 == $fmt ) {
         # q{MakerNote};
         $self->{'MakerNote_size'} = $noc;
@@ -746,7 +832,7 @@ sub readIFDTag {
             $str = q{Adobe RGB};
         }
         elsif ( 0xFFFF == $val ) {
-            $str = q{Uncalibrated (See InteroperabilityIndex)};
+            $str = q{Uncalibrated};
         }
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
@@ -1047,6 +1133,28 @@ sub dump
 }
 
 
+sub _readOrientation
+{
+    my $val = shift;
+
+    if (0x0000FFFF & $val) {
+        # Technically invalid
+        vdebug('Orientation in 0x0000FFFF');
+    }
+    if (0xFF000000 & $val) {
+        # Exactly right
+        vdebug('Orientation in 0xFF000000');
+    }
+    elsif (0x00FF0000 & $val) {
+        # Shift this over (technically, this is correct,
+        # but some mfgrs don't).
+        vdebug('Orientation in 0x00FF0000');
+        $val = ( $val >> 16 );
+    }
+    return $val;
+}
+
+
 sub _strInBuff
 {
     my ( $buff, $noc, $val ) = @_;
@@ -1213,11 +1321,14 @@ sub elog
         $logline .= qq{\n};
     }
 
-    if ( $VERBOSE ) {
+    if ( 2 <= $VERBOSE ) {
         print {*STDERR} $logline;
     }
     elsif ( q{debug} eq $level ) {
         $DEBUG .= $logline;
+    }
+    elsif ( 1 <= $VERBOSE ) {
+        print {*STDERR} $logline;
     }
     elsif ( q{info} eq $level ) {
         $DEBUG .= $logline;
@@ -1230,6 +1341,22 @@ sub elog
     }
     if ( q{critical} eq $level ) {
         confess( $logline );
+    }
+}
+
+
+sub vdebug
+{
+    if ( 3 <= $VERBOSE ) {
+        elog('debug', @_);
+    }
+}
+
+
+sub vvdebug
+{
+    if ( 4 <= $VERBOSE ) {
+        elog('debug', @_);
     }
 }
 
@@ -1419,7 +1546,7 @@ sub _expValueFromFormat {
             return undef;
         }
         else {
-            if ( $VERBOSE ) {
+            if ( 2 <= $VERBOSE ) {
                 $str .= qq{\n} . _hexDump($buff, $val, $noc );
             }
             else {
@@ -1630,8 +1757,8 @@ sub _exifTagName
         0x010f  =>  'Make',
         0x0110  =>  'Model',
         0x0112  =>  'Orientation',
-        0x011a  =>  'X-Resolution',
-        0x011b  =>  'Y-Resolution',
+        0x011a  =>  'XResolution',
+        0x011b  =>  'YResolution',
         0x0128  =>  'ResolutionUnit',
         0x0131  =>  'Software',
         0x0132  =>  'DateTime',
@@ -1731,8 +1858,8 @@ sub _exifTagName
 #        0x0117  =>  'IFD1_StripByteConunts',
         0x0118  =>  'TIFF_MinSampleValue',
         0x0119  =>  'TIFF_MaxSampleValue',
-#        0x011a  =>  'X-Resolution',
-#        0x011b  =>  'Y-Resolution',
+#        0x011a  =>  'XResolution',
+#        0x011b  =>  'YResolution',
 #        0x011c  =>  'IFD1_PlanarConfiguration',
         0x0120  =>  'TIFF_FreeOffsets',
         0x0121  =>  'TIFF_FreeByteCounts',
