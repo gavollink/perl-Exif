@@ -604,7 +604,7 @@ sub readIFDTag {
     if ( 0x0112 == $tag && 3 == $fmt  ) {
         ####################################
         # Orientation
-        my $num = _bytesToInt( $val->{'byte'}, $endian, 0, 1 );
+        my $num = _bytesToInt( $val->{'byte'}, $endian, 0, 2 );
         $self->{'Orientation_mirrored'} = 0;
         if (1 == $num) {
             $str = q{normal (upper left)};
