@@ -325,7 +325,7 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
 
             # Header was just found
             vdebug( sprintf( "%012d: IFD Offset:\n%s",
-                $cx, _hexDump($buff, $cx, 4) )
+                $cx, _hexDump($buff, $cx+4, 4) )
             );
 
             my $offset = _bytesToInt( $buff, $endian, $cx+4, 4 );
@@ -491,19 +491,20 @@ sub readIFD {
     # Each record (needs a counter)
     foreach my $ifd_cx ( 0 .. $ifd_cnt-1 ) {
 
-        vdebug( sprintf( "%012d: IFD Record %d:\n%s",
-            $cx, $ifd_cx, _hexDump($buff, $cx, 12) )
+        vdebug( sprintf( "0x%08x (%010d): IFD Record %d:\n%s",
+            $cx, $cx, $ifd_cx, _hexDump($buff, $cx, 12) )
         );
 
         my $tag = _bytesToInt( $buff, $endian, $cx, 2 );
         my $fmt = _bytesToInt( $buff, $endian, $cx+2, 2 );
         my $noc = _bytesToInt( $buff, $endian, $cx+4, 4 );
-        my $val = _bytesToInt( $buff, $endian, $cx+8, 4 );
+        my $val = _expValueFromStream( $buff, $endian, $fmt, $noc, $cx+8 );
         $ifd->{'record'}->[$ifd_cx] = {
             'offset' => $cx,
             'tag' => $tag,
             'fmt' => $fmt,
             'noc' => $noc,
+            'adr' => $cx+8,
             'val' => $val,
             };
         $cx += 12;
@@ -549,13 +550,15 @@ sub readIFDTag {
         critical( "$name: buffer is not an array.");
     }
 
+    my $off = $ifd->{'record'}->[$ifd_cx]->{'offset'};
     my $tag = $ifd->{'record'}->[$ifd_cx]->{'tag'};
     my $fmt = $ifd->{'record'}->[$ifd_cx]->{'fmt'};
     my $noc = $ifd->{'record'}->[$ifd_cx]->{'noc'};
+    my $adr = $ifd->{'record'}->[$ifd_cx]->{'adr'};
     my $val = $ifd->{'record'}->[$ifd_cx]->{'val'};
 
-    debug( sprintf( "TAG 0x%04x: FMT 0x%04x: NOC 0x%08x: VAL 0x%08x",
-            $tag, $fmt, $noc, $val )
+    debug( sprintf( "TAG 0x%04x: FMT 0x%04x: NOC 0x%08x: ADR 0x%08x (%d)",
+            $tag, $fmt, $noc, $adr, $adr )
     );
 
     # Tag Name (DEFAULTs to the Hex of the Tag)
@@ -573,32 +576,35 @@ sub readIFDTag {
     $ifd->{'record'}->[$ifd_cx]->{'fmt_name'} = _formatName($fmt);
 
     # Expanded Value (if supported)
-    my $str = _expValueFromFormat($buff, $endian, $fmt, $noc, $val);
-    $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
+    my $str = $val->{'out'};
 
     # Only customize the ones that we know how to customize
 
     if ( 0x010e == $tag ) {
+        ####################################
         # Copyright
         if ( defined $str && length($str) ) {
             $self->{'Copyright'} = $str;
         }
     }
     elsif ( 0x010f == $tag ) {
+        ####################################
         # Make
         if ( defined $str && length($str) ) {
             $self->{'Make'} = $str;
         }
     }
     elsif ( 0x0110 == $tag ) {
+        ####################################
         # Model
         if ( defined $str && length($str) ) {
             $self->{'Model'} = $str;
         }
     }
     if ( 0x0112 == $tag && 3 == $fmt  ) {
-        # q{Orientation};
-        my $num = _readOrientation($val);
+        ####################################
+        # Orientation
+        my $num = _bytesToInt( $val->{'byte'}, $endian, 0, 1 );
         $self->{'Orientation_mirrored'} = 0;
         if (1 == $num) {
             $str = q{normal (upper left)};
@@ -651,15 +657,18 @@ sub readIFDTag {
         debug( "Orientation: $str$mir\n" );
     }
     elsif ( 0x011a == $tag ) {
+        ####################################
         # XResolution
-        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str dpi};
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str dp_};
     }
     elsif ( 0x011b == $tag ) {
+        ####################################
         # YResolution
-        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str dpi};
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str dp_};
     }
     elsif ( 0x0128 == $tag && 3 == $fmt  ) {
-        # q{ResolutionUnit};
+        ####################################
+        # ResolutionUnit
         if (1 == $str) {
             $str = q{none};
         }
@@ -672,19 +681,22 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x0132 == $tag ) {
+        ####################################
         # DateTime
         if ( defined $str && length($str) ) {
             $self->{'DateTime'} = $str;
         }
     }
     elsif ( 0x014a == $tag && 4 == $fmt && 1 == $noc ) {
-        # q{SubIFDs};
-#        debug( "Exif SubIFD: $val\n" );
-        debug("Pusing SubIFD.a offset, $val");
-        push @{$self->{'Exif_offset'}}, ( $val );
+        ####################################
+        # SubIFD (a)
+        my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        debug("Pusing SubIFD.a offset, $address");
+        push @{$self->{'Exif_offset'}}, ( $address );
         push @{$self->{'Exif_titles'}}, ( "SubIFD.a" );
     }
     elsif ( 0x829a == $tag ) {
+        ####################################
         # ExposureTime
         if ( 0 < $str && 1 > $str ) {
             my $denom = 1/$str;
@@ -700,25 +712,32 @@ sub readIFDTag {
     }
     elsif ( 0x8769 == $tag && 4 == $fmt && 1 == $noc ) {
         # q{Exif SubIFD};
-#        debug( "Exif SubIFD: $val\n" );
-        debug("Pusing SubIFD.b offset, $val");
-        push @{$self->{'Exif_offset'}}, ( $val );
+        my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        debug("Pusing SubIFD.b offset, $address");
+        push @{$self->{'Exif_offset'}}, ( $address );
         push @{$self->{'Exif_titles'}}, ( "SubIFD.b" );
     }
     elsif ( 0x8825 == $tag && 4 == $fmt && 1 == $noc ) {
         # q{GPSInfo};
-#        debug( "Exif SubIFD: $val\n" );
-        debug("Pusing GPSInfo offset, $val");
-        push @{$self->{'Exif_offset'}}, ( $val );
+        my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        debug("Pusing GPSInfo offset, $address");
+        push @{$self->{'Exif_offset'}}, ( $address );
         push @{$self->{'Exif_titles'}}, ( "GPSInfo" );
     }
     elsif ( 0x8827 == $tag ) {
         # ISO Speed
-        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{ISO-$val};
+        $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{ISO-$str};
     }
     elsif ( 0x9000 == $tag && 7 == $fmt ) {
         # q{Unknown};
-        $str = _strInBuff( $buff, $noc, $val );
+        my $address = undef;
+        if ( 4 >= $noc ) {
+            $address = $val->{'v_addr'};
+        }
+        else {
+            $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        }
+        $str = _strInBuff( $buff, $noc, $address );
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x9003 == $tag ) {
@@ -729,7 +748,14 @@ sub readIFDTag {
     }
     elsif ( 0x9009 == $tag && 7 == $fmt ) {
         # q{Unknown};
-        $str = _strInBuff( $buff, $noc, $val );
+        my $address = undef;
+        if ( 4>=$noc ) {
+            $address = $val->{'v_addr'};
+        }
+        else {
+            $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        }
+        $str = _strInBuff( $buff, $noc, $address );
         debug( sprintf( "0x9009: %s\n", $str) );
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
@@ -764,34 +790,33 @@ sub readIFDTag {
     }
     elsif ( 0x9209 == $tag ) {
         # q{Flash};  MS calls this flash mode
-        #debug( sprintf( "FLASH MODE: %04X\n", $val) );
         my @feat;
         # Bit 0 Flash fired
-        if ( 0 == (0x0001 & $val) ) {
-            push @feat, ( q{Flash did not fire} );
+        if ( 0 == (0x0001 & $str) ) {
+            pusn @feat, ( q{Flash did not fire} );
         }
         else {
             push @feat, ( q{Flash fired} );
         }
         # Bits 1,2 returned light
         # Bits 3,4 flash mode
-        if ( 0x0018 & $val ) {
-            if ( ( 0x0010 & $val ) && ( 0x0008 & $val ) ) {
+        if ( 0x0018 & $str ) {
+            if ( ( 0x0010 & $str ) && ( 0x0008 & $str ) ) {
                 push @feat, ( q{auto mode} );
             }
-            elsif ( ( 0x0010 & $val ) && 0 == ( 0x0008 & $val ) ) {
+            elsif ( ( 0x0010 & $str ) && 0 == ( 0x0008 & $str ) ) {
                 push @feat, ( q{user surpressed} );
             }
-            elsif ( 0 == ( 0x0010 & $val ) && ( 0x0008 & $val ) ) {
+            elsif ( 0 == ( 0x0010 & $str ) && ( 0x0008 & $str ) ) {
                 push @feat, ( q{user forced on} );
             }
         } # else is unknown flash mode
         # Bit 6 red-eye reduction mode
-        if ( 0x0040 == ( 0x0040 & $val ) ) {
+        if ( 0x0040 == ( 0x0040 & $str ) ) {
             push @feat, ( q{red eye reduction mode} );
         }
         # Bit 5 flash function exists
-        if ( 0x0020 == ( 0x0020 & $val ) ) {
+        if ( 0x0020 == ( 0x0020 & $str ) ) {
             push @feat, ( "No flash installed" );
         }
 
@@ -807,49 +832,79 @@ sub readIFDTag {
     }
     elsif ( 0x927c == $tag && 7 == $fmt ) {
         # q{MakerNote};
-        $self->{'MakerNote_size'} = $noc;
-        $self->{'MakerNote_offset'} = $val;
+        my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        if ( 0 == $noc % 12 ) {
+            $self->{'MakerNote_size'} = $noc;
+            $self->{'MakerNote_offset'} = $address;
+        }
+        elsif ( 5 == $noc % 12 ) {
+            my $start = _strInBuff( $buff, 5, $address );
+            if ( $start =~ m{canon}i ) {
+                $self->{'MakerNote_size'} = $noc;
+                $self->{'MakerNote_offset'} = $address + 5;
+            }
+        }
     }
     elsif ( 0xa005 == $tag && 7 == $fmt ) {
         # q{ExifInteroperabilityOffset};
+        my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
         debug( sprintf( "ExifInteroperabilityOffset: Read as IFD:\n") );
-        debug("Pusing ExifInteroperabilityOffset offset, $val");
-        push @{$self->{'Exif_offset'}}, ( $val );
+        debug("Pusing ExifInteroperabilityOffset offset, $address");
+        push @{$self->{'Exif_offset'}}, ( $address );
         push @{$self->{'Exif_titles'}}, ( "ExifInteroperabilityOffset" );
     }
     elsif ( 0xa000 == $tag ) {
         # 'FlashPixVersion'
-        my $str = _strInBuff( $buff, $noc, $val );
+        my $address = undef;
+        if ( 4>=$noc ) {
+            $address = $val->{'v_addr'};
+        }
+        else {
+            $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
+        }
+        $str = _strInBuff( $buff, $noc, $address );
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0xa001 == $tag ) {
         # 'ColorSpace',
-        my $str = $val;
-        if ( 1 == $val ) {
+        if ( 1 == $str ) {
             $str = q{sRGB};
         }
-        elsif ( 2 == $val ) {
+        elsif ( 2 == $str ) {
             $str = q{Adobe RGB};
         }
-        elsif ( 0xFFFF == $val ) {
+        elsif ( 0xFFFF == $str ) {
             $str = q{Uncalibrated};
         }
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0xa210 == $tag && 3 == $fmt  ) {
         # q{FocalPlaneResolutionUnit};
-        if ( $val == 1 ) {
+        if ( 1 == $str ) {
             $str = q{none};
         }
-        elsif ($val = 2 ) {
+        elsif ( 2 == $str ) {
             $str = q{inch};
         }
-        elsif ($val = 3 ) {
+        elsif ( 3 == $str ) {
             $str = q{centimeter};
         }
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
 
+
+    debug( sprintf( "TAG %s: FMT %s: NOC %d: ADR %s"
+            , $ifd->{'record'}->[$ifd_cx]->{'tag_name'} || $tag
+            , $ifd->{'record'}->[$ifd_cx]->{'fmt_name'} || $fmt
+            , $noc
+            , $adr )
+    );
+    if ( $ifd->{'record'}->[$ifd_cx]->{'val_exp'} ) {
+        debug( sprintf( "MASSAGED VAL: %s",
+                $ifd->{'record'}->[$ifd_cx]->{'val_exp'}
+            )
+        );
+    }
 }
 
 
@@ -1106,12 +1161,11 @@ sub dump
             if ( exists $rec->{'val_exp'} && defined( $rec->{'val_exp'} ) ) {
                 $val = $rec->{'val_exp'};
             }
-            elsif ( exists $rec->{'val'} && defined( $rec->{'val'} ) ) {
-                $val = sprintf("0x%08X", $rec->{'val'});
-                $val .= qq{ $fmt};
-                if ( 4 < $noc ) {
-                    $val .= q{, address offset}
-                }
+            elsif ( exists $rec->{'val'}->{'out'} && defined( $rec->{'val'}->{'out'} ) ) {
+                $val = $rec->{'val'}->{'out'};
+            }
+            elsif ( exists $rec->{'val'}->{'num'} && defined( $rec->{'val'}->{'num'} ) ) {
+                $val = $rec->{'val'}->{'num'};
             }
             # else error?
             if ( $known ) {
@@ -1157,54 +1211,28 @@ sub _readOrientation
 
 sub _strInBuff
 {
-    my ( $buff, $noc, $val ) = @_;
+    my ( $buff, $noc, $address ) = @_;
     my $str = q{};
 
-    if ( 4 < $noc ) {
-        for ( my $cx = $val; $cx<$val+$noc; $cx++ ) {
-            my $ch = $buff->[$cx];
-            if ( 0 == $ch ) {
-                return $str;
-            }
-            my $cch = chr($ch);
-            $str .= chr($ch);
-        }
+    my $max = $#{$buff};
+
+    if ( ! defined $address ) {
+        critical( "_strInBuff: Address is null\n" );
     }
-    else {
-        for ( my $cx = 0; $cx<$noc; $cx++ ) {
-            my $mul = 0xFF;
-            my $zro = ( 2 * $cx );
-            my $shft = ( 8 * $cx );
+    elsif ( $max<$address ) {
+        critical("_strInBuff: Address, $address, is beyond buffer size, $max.");
+    }
+    elsif ( $max<$address+$noc ) {
+        critical("_strInBuff: Address, $address+$noc, is beyond buffer size, $max.");
+    }
 
-            # $cx 0, mul is 0xFF
-            # $cx 1, mul is 0xFF00
-            # $cx 2, mul is 0xFF0000
-            # $cx 3, mul is 0xFF000000
-
-            if ( $zro ) {
-                my $hex = "FF";
-                $hex .= ( "0" x $zro );
-                # Assign new $mul
-                $mul = hex($hex);
-            }
-
-            debug( sprintf( "BYTE %d: mul 0x%08x:  val 0x%08x",
-                    $cx, $mul, $val )
-            );
-            my $mask = ( $val & $mul );
-            debug( sprintf( "BYTE %d: mul 0x%08x & val 0x%08x = 0x%08x",
-                    $cx, $mul, $val, $mask )
-            );
-            my $cch = ( $mask >>$shft );
-            debug( sprintf(
-                    "BYTE %d: pre-shift value  0x%08x >> %d = 0x%02x (%s)",
-                    $cx, $mask, $shft, $cch, chr($cch) )
-            );
-            if ( 0 == $cch ) {
-                return $str;
-            }
-            $str .= chr( $cch );
+    for ( my $cx = $address; $cx<$address+$noc; $cx++ ) {
+        my $ch = $buff->[$cx];
+        if ( 0 == $ch ) {
+            return $str;
         }
+        my $cch = chr($ch);
+        $str .= chr($ch);
     }
 
     return $str;
@@ -1218,13 +1246,15 @@ sub _hexDump
     my $noc = shift;
 
     my $max = scalar @{$buff};
+    my $end_of_data = undef;
 
     if ( $max < $offset ) {
         confess( "Request to _hexDump outside of loaded buffer ($max < $offset)." );
     }
     if ( $max < $offset+$noc ) {
-        debug( "Request to _hexDump past loaded buffer ($max < $offset), showing what exists." );
+        debug( "Request to _hexDump past loaded buffer ($max < $offset), loading what exists." );
         $noc = $max - $offset
+        $end_of_data = q{<EOB>};
     }
 
     my $border
@@ -1262,53 +1292,19 @@ sub _hexDump
             $txt .= q{.};
         }
     }
+    if ( $end_of_data && 43 >= length($hex) ) {
+        $hex .= $end_of_data;
+    }
     $str .= sprintf( "|%-48s  | %-16s |\n", $hex, $txt );
+    if ( $end_of_data && 43 < length($hex) ) {
+        $hex = $end_of_data;
+        $txt = q{};
+        $str .= sprintf( "|%-48s  | %-16s |\n", $hex, $txt );
+    }
     $str .= "$border";
     return $str;
 }
 
-
-sub HexView {
-    my $self = shift;
-    my $data = shift;
-    # If a filehandle  ref was an arg we convert
-    # it to an array (in a rather ugly fashion)
-     if (ref($data) eq 'GLOB') {
-            @_ = <$data>;
-            undef $data;    # clean the 'GLOB(0x123456)'
-    }
-    while (@_){$data .= shift}
-
-    my ($hex, $char);
-TT: foreach (split (//,$data)){
-        $hex  .= sprintf('%02X ', ($_));
-        if ( ($_) > 13 && ($_) < 126 ) {
-             $char .= chr($_);
-        }
-        else {
-             $char .= q{.};
-        }
-    }
-
-    local $: = ''; # $FORMAT_LINE_BREAK_CHARACTERS (and we don't want that)
-my $formathead =<<"HEAD";
-format =
-+--------------------------------------------------+------------------+
-| 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F  | 0123456789ABCDEF |
-+--------------------------------------------------+------------------+
-HEAD
-my $formatline = <<'LINE';
-| ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< | ^<<<<<<<<<<<<<<< |
- $hex,                                             $char,
-LINE
-my $formatend = <<'END';
-+--------------------------------------------------+------------------+
-.
-END
-    eval($formathead . $formatline x (int(length($data)/16)+1) . $formatend);
-    write;
-    return 1;
-}
 
 
 sub elog
@@ -1462,139 +1458,197 @@ sub _bytesToInt {
 sub _formatName {
     my $fmt = shift;
 
-    if ( $fmt == 1 ) {
+    if ( 1 == $fmt ) {
         return q{unsigned byte};
     }
-    elsif ( $fmt == 2 ) {
+    elsif ( 2 == $fmt ) {
         return q{ascii strings};
     }
-    elsif ( $fmt == 3 ) {
+    elsif ( 3 == $fmt ) {
         return q{unsigned short (2B)};
     }
-    elsif ( $fmt == 4 ) {
+    elsif ( 4 == $fmt ) {
         return q{unsigned long (4B)};
     }
-    elsif ( $fmt == 5 ) {
+    elsif ( 5 == $fmt ) {
         return q{unsigned rational (8B)};
     }
-    elsif ( $fmt == 6 ) {
+    elsif ( 6 == $fmt ) {
         return q{signed byte};
     }
-    elsif ( $fmt == 7 ) {
+    elsif ( 7 == $fmt ) {
         return q{undefined};
     }
-    elsif ( $fmt == 8 ) {
+    elsif ( 8 == $fmt ) {
         return q{signed short (2B)};
     }
-    elsif ( $fmt == 9 ) {
+    elsif ( 9 == $fmt ) {
         return q{signed long (4B)};
     }
-    elsif ( $fmt == 10 ) {
+    elsif ( 10 == $fmt ) {
         return q{signed rational (8B)};
     }
-    elsif ( $fmt == 11 ) {
+    elsif ( 11 == $fmt ) {
         return q{single float (4B)};
     }
-    elsif ( $fmt == 12 ) {
+    elsif ( 12 == $fmt ) {
         return q{double float (8B)};
     }
 }
 
 
-sub _expValueFromFormat {
-    my ( $buff, $endian, $fmt, $noc, $val ) = @_;
+sub _expValueFromStream {
+    my ( $buff, $endian, $fmt, $noc, $v_offset ) = @_;
 
-    if ( $fmt == 1 ) {
+    my $max = $#{$buff};
+
+    if ( $v_offset > $max ) {
+        critical(qq{_bytesToInt :: offset on buffer is too large ($v_offset).});
+    }
+
+    my $address = $v_offset;
+    my $val = {
+            'v_addr' => $v_offset,
+            'v_byte' => [ @{$buff}[ $v_offset .. $v_offset+3 ] ],
+    };
+#    vdebug ( sprintf( "v_byte 0x%02x 0x%02x 0x%02x 0x%02x", 
+#        $val->{'v_byte'}->[0],
+#        $val->{'v_byte'}->[1],
+#        $val->{'v_byte'}->[2],
+#        $val->{'v_byte'}->[3] )
+#    );
+
+    if ( 1 == $fmt ) {
         #return q{unsigned byte};
-        return $val
+        $val->{'byte'} = [ $buff->[$v_offset] ];
+        $val->{'num'} = _bytesToInt ( $buff, $endian, $address, 1 );
+        $val->{'out'} = $val->{'num'};
     }
-    elsif ( $fmt == 2 ) {
+    elsif ( 2 == $fmt ) {
         #return q{ascii strings};
-        return _strInBuff( $buff, $noc, $val );
-    }
-    elsif ( $fmt == 3 ) {
-        #return q{unsigned short (2B)};
-        return $val
-    }
-    elsif ( $fmt == 4 ) {
-        #return q{unsigned long (4B)};
-        return $val
-    }
-    elsif ( $fmt == 5 ) {
-        #return q{unsigned rational (8B unsupported)};
-        my $pri = _bytesToInt ( $buff, $endian, $val, 4 );
-        my $den = _bytesToInt ( $buff, $endian, $val+4, 4 );
-        my $ret = ( $pri / $den );
-#        elog( 'debug', "Unsigned rational at ($val): $pri / $den = $ret" );
-        return sprintf("%.16lg", $ret );
-    }
-    elsif ( $fmt == 6 ) {
-        #return q{signed byte};
-        if ( 0x7F > $val ) {
-            return $val;
-        }
-        else {
-            my $new = ( 0x7F & $val );
-            return -1 * $new;
-        }
-    }
-    elsif ( $fmt == 7 ) {
-        # q{undefined};
-        my $str = q{hex:};
-        my $max = 30<$noc?30:$noc;
         if ( 4 >= $noc ) {
-            return undef;
+            $val->{'byte'} = [ @{$buff}[ $v_offset .. $v_offset+($noc-1) ] ];
+            $val->{'str'} = _strInBuff( $buff, $noc, $address );
+            $val->{'out'} = $val->{'str'};
         }
         else {
-            if ( 2 <= $VERBOSE ) {
-                $str .= qq{\n} . _hexDump($buff, $val, $noc );
-            }
-            else {
-                for ( my $cx = 0; $cx<$max; $cx++ ) {
-                    $str .= sprintf( " %02X", $buff->[$val+$cx] );
+            $address = _bytesToInt ( $buff, $endian, $address, 4 );
+            $val->{'addr'} = $address;
+            $val->{'byte'} = [ @{$buff}[ $address .. $address+($noc-1) ] ];;
+            $val->{'str'} = _strInBuff( $buff, $noc, $address );
+            $val->{'out'} = $val->{'str'};
+        }
+    }
+    elsif ( 3 == $fmt ) {
+        #return q{unsigned short (2B)};
+        $val->{'byte'} = [ @{$buff}[ $address .. $address+1 ] ];;
+        $val->{'num'}  = _bytesToInt ( $buff, $endian, $address, 2 );
+        $val->{'out'} = $val->{'num'};
+    }
+    elsif ( 4 == $fmt ) {
+        #return q{unsigned long (4B)};
+        $val->{'byte'} = [ @{$buff}[ $address .. $address+3 ] ];;
+        $val->{'num'} = _bytesToInt ( $buff, $endian, $address, 4 );
+        $val->{'out'} = $val->{'num'};
+    }
+    elsif ( 5 == $fmt ) {
+        #return q{unsigned rational (8B unsupported)};
+        $address = _bytesToInt ( $buff, $endian, $address, 4 );
+        $val->{'addr'} = $address;
+        my $pri = _bytesToInt ( $buff, $endian, $address, 4 );
+        $val->{'numerator'} = $pri;
+        my $den = _bytesToInt ( $buff, $endian, $address+4, 4 );
+        $val->{'denominator'} = $den;
+        my $ret = ( $pri / $den );
+        $val->{'num'} = $ret;
+        $val->{'out'} = sprintf("%.16lg", $ret );
+    }
+    elsif ( 6 == $fmt ) {
+        #return q{signed byte};
+        $val->{'byte'} = [ $buff->[$v_offset] ];
+        $val->{'num'} = _bytesToInt ( $buff, $endian, $address, 1 );
+        if ( ! ( 0x7F > $val->{'num'} ) ) {
+            my $new = ( 0x7F & $val->{'num'} );
+            $val->{'num'} = ( -1 * $new );
+        }
+        $val->{'out'} = $val->{'num'};
+    }
+    elsif ( 7 == $fmt ) {
+        # q{undefined};
+        my $addr = undef;
+        my $str = q{hex:};
+        if ( 4 >= $noc ) {
+            $addr = $val->{'v_addr'};
+        }
+        else {
+            $addr = _bytesToInt( $buff, $endian, $val->{'v_addr'}, 4 );
+            $str .= sprintf( " at 0x%08x (%010d):", $addr, $addr );
+        }
+
+        $val->{'addr'} = $addr;
+        if ( 2 <= $VERBOSE ) {
+            $str .= qq{\n} . _hexDump($buff, $addr, $noc );
+            $val->{'str'} = $str;
+            $val->{'out'} = $val->{'str'};
+        }
+        else {
+            my $max = 16<$noc?16:$noc;
+            my $cutoff = 0;
+            for ( my $cx = 0; $cx<$max; $cx++ ) {
+                $str .= sprintf( " %02X", $buff->[$addr+$cx] );
+                if ( 15 == $cx ) {
+                    $cutoff = 1;
                 }
+            }
+            if ( $cutoff ) {
                 $str .= q{ ...};
             }
+            $val->{'str'} = $str;
+            $val->{'out'} = $val->{'str'};
         }
-        return $str;
     }
-    elsif ( $fmt == 8 ) {
+    elsif ( 8 == $fmt ) {
         #return q{signed short (2B)};
-        if ( 0x7FFF > $val ) {
-            return $val;
+        $val->{'byte'} = [ @{$buff}[ $address .. $address+1 ] ];;
+        $val->{'num'} = _bytesToInt ( $buff, $endian, $address, 2 );
+        if ( 0x8000 & $val->{'num'} ) {
+            my $new = ( 0x7FFF & $val->{'num'} );
+            $val->{'num'} =  -1 * $new;
         }
-        else {
-            my $new = ( 0x7FFF & $val );
-            return -1 * $new;
-        }
+        $val->{'out'} = $val->{'num'};
     }
-    elsif ( $fmt == 9 ) {
+    elsif ( 9 == $fmt ) {
         #return q{signed long (4B)};
-        if ( 0x7FFFFFFF > $val ) {
-            return $val;
+        $val->{'byte'} = [ @{$buff}[ $address .. $address+3 ] ];;
+        $val->{'num'}  = _bytesToInt ( $buff, $endian, $address, 4 );
+        if ( 0x80000000 & $val->{'num'} ) {
+            my $new = ( 0x7FFFFFFF & $val->{'num'} );
+            $val->{'num'} = ( -1 * $new );
         }
-        else {
-            my $new = ( 0x7FFFFFFF & $val );
-            return -1 * $new;
-        }
+        $val->{'out'} = $val->{'num'};
     }
-    elsif ( $fmt == 10 ) {
+    elsif ( 10 == $fmt ) {
         #return q{signed rational (8B unsupported)};
-        my $pri = _bytesToInt ( $buff, $endian, $val, 4 );
-        my $den = _bytesToInt ( $buff, $endian, $val+4, 4 );
+        $address = _bytesToInt ( $buff, $endian, $address, 4 );
+        $val->{'addr'} = $address;
+        my $pri = _bytesToInt ( $buff, $endian, $address, 4 );
         if ( 0x7FFFFFFF > $pri ) {
             $pri = ( 0x7FFFFFFF & $pri );
             $pri = -1 * $pri;
         }
+        $val->{'numerator'} = $pri;
+        my $den = _bytesToInt ( $buff, $endian, $address+4, 4 );
+        $val->{'denominator'} = $den;
         my $ret = ( $pri / $den );
-#        elog( 'debug', "Signed rational at ($val): $pri / $den = $ret" );
-        return sprintf("%.16lg", $ret || 0 );
+        $val->{'num'} = $ret;
+        $val->{'out'} =  sprintf("%.16lg", $ret || 0 );
     }
-    elsif ( $fmt == 11 ) {
+    elsif ( 11 == $fmt ) {
         #return q{single float (4B)};
 
         # NOTE the 4 bytes has ALREADY endian switched to native.
         #    done by _bytesToInt()
+        my $new = _bytesToInt ( $buff, $endian, $address, 4 );
 
         # Try response from...
         # https://stackoverflow.com/questions/770342/how-can-i-convert-four-characters-into-a-32-bit-ieee-754-float-in-perl
@@ -1609,38 +1663,51 @@ sub _expValueFromFormat {
 #
 #my $num = $sign * (2 ** $expo) * ( $mant / (1 << 23));
 
-        my $sign = ( $val & 0x80000000) ? -1 : 1;
-        my $expo = (($val & 0x7F800000) >> 23) - 127;
-        my $mant = ( $val & 0x007FFFFF
+        my $sign = ( $new & 0x80000000) ? -1 : 1;
+        my $expo = (($new & 0x7F800000) >> 23) - 127;
+        my $mant = ( $new & 0x007FFFFF
                           | 0x00800000);
         my $ret = $sign * (2 ** $expo) * ( $mant / (1 << 23));
 
-        return sprintf("%.16lg", $ret );
+        $val->{'sign'} = $sign;
+        $val->{'exponent'} = $expo;
+        $val->{'mantissa'} = $mant;
+        $val->{'num'} = $ret;
+
+        $val->{'out'} = sprintf("%.16lg", $ret );
     }
-    elsif ( $fmt == 12 ) {
+    elsif ( 12 == $fmt ) {
         #   This is specifically converting IEEE format numbers, it is
         #   KNOWN to not be "portable", because it is an external Exif standard
         # Scoped to this block.
         no warnings 'portable';
 
+        $address = _bytesToInt ( $buff, $endian, $address, 4 );
+        $val->{'addr'} = $address;
         #return q{double float (8B)};
 
         # NOTE the 8 bytes MAY have to be endian switched to native.
         #    done by _bytesToInt()
 
-        my $tmp = _bytesToInt($buff, $endian, $val, 8);
+        my $new = _bytesToInt($buff, $endian, $address, 8);
 
         # Direct conversion from above code snip -- with the help of:
         # https://en.wikipedia.org/wiki/Double-precision_floating-point_format
 
-        my $sign = ( $tmp & 0x8000000000000000 ) ? -1 : 1;
-        my $expo = (($tmp & 0x7FF0000000000000 ) >> 52) - 1023;
-        my $mant = ( $tmp & 0x000FFFFFFFFFFFFF
+        my $sign = ( $new & 0x8000000000000000 ) ? -1 : 1;
+        my $expo = (($new & 0x7FF0000000000000 ) >> 52) - 1023;
+        my $mant = ( $new & 0x000FFFFFFFFFFFFF
                           | 0x0010000000000000 );
         my $ret = $sign * (2 ** $expo) * ( $mant / (1 << 52));
 
-        return sprintf("%.16lg", $ret );
+        $val->{'sign'} = $sign;
+        $val->{'exponent'} = $expo;
+        $val->{'mantissa'} = $mant;
+        $val->{'num'} = $ret;
+
+        $val->{'out'} = sprintf("%.16lg", $ret );
     }
+    return $val;
 }
 
 
