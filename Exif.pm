@@ -793,7 +793,7 @@ sub readIFDTag {
         my @feat;
         # Bit 0 Flash fired
         if ( 0 == (0x0001 & $str) ) {
-            pusn @feat, ( q{Flash did not fire} );
+            push @feat, ( q{Flash did not fire} );
         }
         else {
             push @feat, ( q{Flash fired} );
@@ -1253,7 +1253,7 @@ sub _hexDump
     }
     if ( $max < $offset+$noc ) {
         debug( "Request to _hexDump past loaded buffer ($max < $offset), loading what exists." );
-        $noc = $max - $offset
+        $noc = $max - $offset;
         $end_of_data = q{<EOB>};
     }
 
