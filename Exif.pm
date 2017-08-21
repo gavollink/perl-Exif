@@ -699,9 +699,12 @@ sub readIFDTag {
         ####################################
         # ExposureTime
         if ( 0 < $str && 1 > $str ) {
-            my $denom = 1/$str;
-            if ( int($denom) == $denom ) {
-                $str = qq{1/$denom};
+            my $denom = sprintf( "%.2f", 1/$str );
+            if ( $denom =~ m{\.0} ) {
+                $str = qq{1/} . int($denom);
+            }
+            else {
+                $str = qq{1/} . sprintf( "%.1f", 1/$str );
             }
         }
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str sec.};
