@@ -16,6 +16,8 @@ MAIN: {
 
     my $res = Exif->new($opts);
 
+    print "Filename: $fn\n";
+
     if ( $opts->{'verbose'} ) {
         print $Exif::ERROR;
         print $Exif::DEBUG;
@@ -34,6 +36,7 @@ sub opts
     if ( !$opts ) {
         $opts = {};
     }
+    $opts->{'verbose'} = 0;
 
     my $help = 0;
 
@@ -45,10 +48,10 @@ sub opts
             $opts->{'filename'} = $args[++$cx];
         }
         elsif ( q{-v} eq $args[$cx] ) {
-            $opts->{'verbose'} = 1;
+            $opts->{'verbose'}++;
         }
         elsif ( q{--verbose} eq $args[$cx] ) {
-            $opts->{'verbose'} = 1;
+            $opts->{'verbose'}++;
         }
         elsif ( q{-h} eq $args[$cx] ) {
             $help = 1;
