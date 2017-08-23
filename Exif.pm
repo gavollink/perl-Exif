@@ -1,7 +1,16 @@
-####
+#############################################################################
+#
 # Exif.pm
+####
+#
+# This is an Exif file format reader written in pure Perl.  Almost
+# portable, but 8-byte float-reading requires 64-bit support.
+#     ( at least the way I did it ).
+#
+####
 # Some comments are cut/paste from here:
 #    https://www.media.mit.edu/pia/Research/deepview/exif.html
+####
 package Exif;
 use warnings;
 use strict;
