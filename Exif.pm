@@ -385,21 +385,26 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
                 $cx = $self->readIFD(
                     $buff,
                     $cx,
-                    $self->{'Exif_IFD'}->{$self->{'Exif_cnt'}}
-                );
-
-                $self->{'Exif_cnt'}++;
-
-                debug( q{Exif count is now: }
-                    . $self->{'Exif_cnt'}
-                    . qq{\n}
+                    $self->{'Exif_IFD'}->{$self->{'Exif_cnt'}},
                 );
 
                 if ( defined( $cx ) ) {
-                    debug("Pushing offset, $cx");
-                    push @{$self->{'Exif_offset'}}, ( $cx );
-                    debug("Pushing title, ",  "IFD" . $self->{'Exif_cnt'} );
-                    push @{$self->{'Exif_titles'}}, ( "IFD" . $self->{'Exif_cnt'} );
+                    $self->{'Exif_cnt'}++;
+
+                    debug( q{Exif count is now: }
+                        . $self->{'Exif_cnt'}
+                        . qq{\n}
+                    );
+
+                    if ( 0 < $cx ) {
+                        debug("Pushing offset, $cx");
+                        push @{$self->{'Exif_offset'}}, ( $cx );
+                        debug("Pushing title, ",  "IFD" . $self->{'Exif_cnt'} );
+                        push @{$self->{'Exif_titles'}}, ( "IFD" . $self->{'Exif_cnt'} );
+                    }
+                }
+                else {
+                    return;
                 }
 
                 # Must POP these in order (even though elsif seems appropriate)
@@ -420,10 +425,11 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
                     push @{$self->{'Exif_offset'}}, ( $cx );
                     push @{$self->{'Exif_titles'}}, ( "MakerNote" );
 
-#                    if ( $self->{'Make'} eq 'Canon' ) {
-#                        # CANON reads like another IFD.
-#                    }
-#                    else {
+                    if ( $self->{'Make'} eq 'NEVER' ) {
+                        # CANON reads like another IFD.
+                        #  Breaks for SOME Canon, so effectively killing this
+                    }
+                    else {
                         my $end = $cx + $self->{'MakerNote_size'};
                         debug("Undoing MakerNote offset");
                         pop @{$self->{'Exif_offset'}};
@@ -431,7 +437,7 @@ TP: for ( my $cx = 0; $cx<$#{$buff}; $cx++ ) {
 
                         $cx = $#{$buff};
                         next TP;
-#                    }
+                    }
                 }
                 else {
                     $cx = $#{$buff};
@@ -455,6 +461,7 @@ sub readIFD {
     my $buff = shift;
     my $cx = shift;
     my $ifd = shift;
+
     my $endian = $self->{'Exif_endian'};
 
     my $name = ref($self) || $self || 'Exif';
@@ -484,6 +491,7 @@ sub readIFD {
 
     # Record count first.
     my $ifd_cnt = _bytesToInt( $buff, $endian, $cx, 2 );
+
     $ifd->{'count'} += $ifd_cnt;
     
     $cx += 2;
@@ -497,6 +505,12 @@ sub readIFD {
 
         my $tag = _bytesToInt( $buff, $endian, $cx, 2 );
         my $fmt = _bytesToInt( $buff, $endian, $cx+2, 2 );
+
+        if ( ! defined _formatName( $fmt ) ) {
+            warning ( "$name: Invalid Format, IFD Record $ifd_cx." );
+            return undef;
+        }
+
         my $noc = _bytesToInt( $buff, $endian, $cx+4, 4 );
         my $val = _expValueFromStream( $buff, $endian, $fmt, $noc, $cx+8 );
         $ifd->{'record'}->[$ifd_cx] = {
@@ -518,8 +532,7 @@ sub readIFD {
     if ( $off ) {
         return $off
     }
-    return undef;
-
+    return 0;
 }
 
 
@@ -1261,10 +1274,11 @@ sub _hexDump
     }
 
     my $border
- = q{+--------------------------------------------------+------------------+};
+ = q{+-------+--------------------------------------------------+------------------+};
     my $formatter
- = q{| 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F  | 0123456789ABCDEF |};
+ = q{ OFFSET | 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F  | 0123456789ABCDEF |};
     my $str = q{};
+    my $start_offset = 0;
     my $hex = q{};
     my $txt = q{};
     my $lines = 0;
@@ -1276,11 +1290,12 @@ sub _hexDump
         }
         elsif ( ( 0 != $cx ) && ( 0 == ( $cx % 16 ) ) ) {
             $lines++;
-            $str .= sprintf( "|%48s  | %16s |\n", $hex, $txt );
+            $str .= sprintf( "%07x |%48s  | %16s |\n", $start_offset, $hex, $txt );
+            $start_offset = $cx;
             $hex = q{};
             $txt = q{};
 
-            if ( 0 == ( $lines % 30 ) ) {
+            if ( 0 == ( $lines % 16 ) ) {
                 $str .= "$border\n";
                 $str .= "$formatter\n";
                 $str .= "$border\n";
@@ -1298,11 +1313,11 @@ sub _hexDump
     if ( $end_of_data && 43 >= length($hex) ) {
         $hex .= $end_of_data;
     }
-    $str .= sprintf( "|%-48s  | %-16s |\n", $hex, $txt );
+    $str .= sprintf( "%07x |%-48s  | %-16s |\n", $start_offset, $hex, $txt );
     if ( $end_of_data && 43 < length($hex) ) {
         $hex = $end_of_data;
         $txt = q{};
-        $str .= sprintf( "|%-48s  | %-16s |\n", $hex, $txt );
+        $str .= sprintf( "%07x |%-48s  | %-16s |\n", $start_offset, $hex, $txt );
     }
     $str .= "$border";
     return $str;
@@ -1497,6 +1512,8 @@ sub _formatName {
     elsif ( 12 == $fmt ) {
         return q{double float (8B)};
     }
+
+    return undef;
 }
 
 
