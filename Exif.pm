@@ -17,7 +17,6 @@ use strict;
 
 use Carp;
 use IO::Handle;
-use bignum;
 
 use constant {
     JPEG0   => 0xFF,
@@ -732,6 +731,7 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{$str sec.};
     }
     elsif ( 0x829d == $tag ) {
+        ####################################
         # FNumber
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{f/$str};
     }
@@ -743,18 +743,21 @@ sub readIFDTag {
         push @{$self->{'Exif_titles'}}, ( "SubIFD.b" );
     }
     elsif ( 0x8825 == $tag && 4 == $fmt && 1 == $noc ) {
-        # q{GPSInfo};
+        ####################################
+        # GPSInfo
         my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
         debug("Pusing GPSInfo offset, $address");
         push @{$self->{'Exif_offset'}}, ( $address );
         push @{$self->{'Exif_titles'}}, ( "GPSInfo" );
     }
     elsif ( 0x8827 == $tag ) {
+        ####################################
         # ISO Speed
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = qq{ISO-$str};
     }
     elsif ( 0x9000 == $tag && 7 == $fmt ) {
-        # q{Unknown};
+        ####################################
+        # Unknown
         my $address = undef;
         if ( 4 >= $noc ) {
             $address = $val->{'v_addr'};
@@ -766,13 +769,15 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x9003 == $tag ) {
+        ####################################
         # DateTimeOriginal
         if ( defined $str && length($str) ) {
             $self->{'DateTimeOriginal'} = $str;
         }
     }
     elsif ( 0x9009 == $tag && 7 == $fmt ) {
-        # q{Unknown};
+        ####################################
+        # Unknown
         my $address = undef;
         if ( 4>=$noc ) {
             $address = $val->{'v_addr'};
@@ -785,6 +790,7 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x9207 == $tag ) {
+        ####################################
         # MeteringMode
             # $str already has the value.
         if ( 0 == $str ) {
@@ -814,7 +820,8 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x9209 == $tag ) {
-        # q{Flash};  MS calls this flash mode
+        ####################################
+        # Flash  MS calls this flash mode
         my @feat;
         # Bit 0 Flash fired
         if ( 0 == (0x0001 & $str) ) {
@@ -851,12 +858,14 @@ sub readIFDTag {
         }
     }
     elsif ( 0x920a == $tag ) {
+        ####################################
         # FocalLength
         $str = qq{$str mm};
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0x927c == $tag && 7 == $fmt ) {
-        # q{MakerNote};
+        ####################################
+        # MakerNote
         my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
         if ( 0 == $noc % 12 ) {
             $self->{'MakerNote_size'} = $noc;
@@ -871,7 +880,8 @@ sub readIFDTag {
         }
     }
     elsif ( 0xa005 == $tag && 7 == $fmt ) {
-        # q{ExifInteroperabilityOffset};
+        ####################################
+        # ExifInteroperabilityOffset
         my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
         debug( sprintf( "ExifInteroperabilityOffset: Read as IFD:\n") );
         debug("Pusing ExifInteroperabilityOffset offset, $address");
@@ -879,7 +889,8 @@ sub readIFDTag {
         push @{$self->{'Exif_titles'}}, ( "ExifInteroperabilityOffset" );
     }
     elsif ( 0xa000 == $tag ) {
-        # 'FlashPixVersion'
+        ####################################
+        # FlashPixVersion
         my $address = undef;
         if ( 4>=$noc ) {
             $address = $val->{'v_addr'};
@@ -891,7 +902,8 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0xa001 == $tag ) {
-        # 'ColorSpace',
+        ####################################
+        # ColorSpace
         if ( 1 == $str ) {
             $str = q{sRGB};
         }
@@ -904,7 +916,8 @@ sub readIFDTag {
         $ifd->{'record'}->[$ifd_cx]->{'val_exp'} = $str;
     }
     elsif ( 0xa210 == $tag && 3 == $fmt  ) {
-        # q{FocalPlaneResolutionUnit};
+        ####################################
+        # FocalPlaneResolutionUnit
         if ( 1 == $str ) {
             $str = q{none};
         }
@@ -1581,14 +1594,17 @@ sub _expValueFromStream {
         $val->{'out'} = $val->{'num'};
     }
     elsif ( 5 == $fmt ) {
-        #return q{unsigned rational (8B unsupported)};
+        # unsigned rational (8B unsupported)
+        my $ret = 0;
         $address = _bytesToInt ( $buff, $endian, $address, 4 );
         $val->{'addr'} = $address;
         my $pri = _bytesToInt ( $buff, $endian, $address, 4 );
         $val->{'numerator'} = $pri;
         my $den = _bytesToInt ( $buff, $endian, $address+4, 4 );
         $val->{'denominator'} = $den;
-        my $ret = ( $pri / $den );
+        if ( 0 != $den ) {
+            $ret = ( $pri / $den );
+        }
         $val->{'num'} = $ret;
         $val->{'out'} = sprintf("%.16lg", $ret );
     }
@@ -1673,70 +1689,118 @@ sub _expValueFromStream {
         $val->{'out'} =  sprintf("%.16lg", $ret || 0 );
     }
     elsif ( 11 == $fmt ) {
-        #return q{single float (4B)};
+        # single float (4B)
+        #   This is specifically converting IEEE format numbers
+
+        my $new = _bytesToInt ( $buff, $endian, $address, 4 );
 
         # NOTE the 4 bytes has ALREADY endian switched to native.
         #    done by _bytesToInt()
-        my $new = _bytesToInt ( $buff, $endian, $address, 4 );
 
-        # Try response from...
-        # https://stackoverflow.com/questions/770342/how-can-i-convert-four-characters-into-a-32-bit-ieee-754-float-in-perl
-
-#my $word = ($byte0 << 24) + ($byte1 << 16) + ($byte2 << 8) + $byte3;
-#Now extract the parts of the word: the sign bit, exponent and mantissa:
-#
-#my $sign = ($word & 0x80000000) ? -1 : 1;
-#my $expo = (($word & 0x7F800000) >> 23) - 127;
-#my $mant = ($word & 0x007FFFFF | 0x00800000);
-#Assemble your float:
-#
-#my $num = $sign * (2 ** $expo) * ( $mant / (1 << 23));
-
-        my $sign = ( $new & 0x80000000) ? -1 : 1;
-        my $expo = (($new & 0x7F800000) >> 23) - 127;
-        my $mant = ( $new & 0x007FFFFF
-                          | 0x00800000);
-        my $ret = $sign * (2 ** $expo) * ( $mant / (1 << 23));
-
-        $val->{'sign'} = $sign;
-        $val->{'exponent'} = $expo;
-        $val->{'mantissa'} = $mant;
-        $val->{'num'} = $ret;
-
-        $val->{'out'} = sprintf("%.16lg", $ret );
+        # Stores output to $val hashref itself.
+        _float4byte($new, $val);
     }
     elsif ( 12 == $fmt ) {
-        #   This is specifically converting IEEE format numbers, it is
-        #   KNOWN to not be "portable", because it is an external Exif standard
-        # Scoped to this block.
-        no warnings 'portable';
+        # Double float (8B)
+        #
+        #   This is specifically converting IEEE format numbers
 
         $address = _bytesToInt ( $buff, $endian, $address, 4 );
         $val->{'addr'} = $address;
-        #return q{double float (8B)};
 
         # NOTE the 8 bytes MAY have to be endian switched to native.
         #    done by _bytesToInt()
 
         my $new = _bytesToInt($buff, $endian, $address, 8);
 
-        # Direct conversion from above code snip -- with the help of:
-        # https://en.wikipedia.org/wiki/Double-precision_floating-point_format
-
-        my $sign = ( $new & 0x8000000000000000 ) ? -1 : 1;
-        my $expo = (($new & 0x7FF0000000000000 ) >> 52) - 1023;
-        my $mant = ( $new & 0x000FFFFFFFFFFFFF
-                          | 0x0010000000000000 );
-        my $ret = $sign * (2 ** $expo) * ( $mant / (1 << 52));
-
-        $val->{'sign'} = $sign;
-        $val->{'exponent'} = $expo;
-        $val->{'mantissa'} = $mant;
-        $val->{'num'} = $ret;
-
-        $val->{'out'} = sprintf("%.16lg", $ret );
+        # Stores output to $val hashref itself.
+        _float8byte($new, $val);
     }
     return $val;
+}
+
+
+sub _float4byte
+{
+    my $new = shift;
+    my $val = shift;
+
+    # Copied a response from...
+    # https://stackoverflow.com/questions/770342/how-can-i-convert-four-characters-into-a-32-bit-ieee-754-float-in-perl
+
+    #### Calculation Constants
+    my $signmask = 0x80000000;
+    my $expomask = 0x7F800000;
+    my $bit23    = 0x00800000;
+    my $mantmask = 0x007FFFFF;
+
+    #### Build Sign
+    my $sign = ( $new & $signmask ) ? -1 : 1;
+
+    #### Create Exponent
+    my $expo = (($new & $expomask ) >> 23) - 127;
+    $expo = ( 2 ** $expo );
+
+    #### Create Mantissa
+    my $mant = (($new & $mantmask ) | $bit23);
+    $mant = ( $mant / $bit23 );
+
+    #Assemble our float:
+    my $ret = $sign * $expo * $mant;
+
+    $val->{'sign'} = $sign;
+    $val->{'exponent'} = $expo;
+    $val->{'mantissa'} = $mant;
+    $val->{'num'} = $ret;
+    $val->{'out'} = sprintf("%.8g", $ret );
+
+    return $ret;
+}
+
+sub _float8byte
+{
+    my $new = shift;
+    my $val = shift;
+
+    # Originally this was a direct conversion from the _float4byte()
+    # code snip -- with the help of:
+    # https://en.wikipedia.org/wiki/Double-precision_floating-point_format
+
+    # Then was converted to use Math::BigInt and Math::BigFloat
+
+    use Math::BigInt;
+    use Math::BigFloat;
+
+    #### Calculation Constants
+    my $signmask = Math::BigInt->from_hex('0x8000000000000000');
+    my $expomask = Math::BigInt->from_hex('0x7FF0000000000000');
+    my $bit52    = Math::BigInt->from_hex('0x0010000000000000');
+    my $mantmask = Math::BigInt->from_hex('0x000FFFFFFFFFFFFF');
+
+    #### Build Sign
+    my $dosign = Math::BigInt->new( $new )->band( $signmask );
+    my $sign = $dosign->is_zero()?1:-1;
+    $dosign = undef;
+
+    #### Create Exponent
+    my $doexpo = Math::BigInt->new( $new )->band( $expomask )->bdiv( $bit52 )->bsub( 1023 );
+    my $expo = Math::BigFloat->new( 2 )->bpow( $doexpo );
+    $doexpo = undef;
+
+    #### Create Mantissa
+    my $domant = Math::BigInt->new( $new )->band( $mantmask )->bior( $bit52 );
+    my $mant = Math::BigFloat->new( $domant )->bdiv($bit52);
+    $domant = undef;
+
+    my $ret = Math::BigFloat->new( $sign )->bmul( $expo )->bmul( $mant );
+
+    $val->{'sign'} = $sign;
+    $val->{'exponent'} = $expo;
+    $val->{'mantissa'} = $mant;
+    $val->{'num'} = 0 + $ret;
+    $val->{'out'} = sprintf("%.16lg", $ret);
+
+    return $val->{'num'};
 }
 
 
