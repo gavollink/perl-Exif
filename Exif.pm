@@ -1967,7 +1967,7 @@ sub _exifTagName
         0xa402  =>  'ExposureMode',
         0xa403  =>  'WhiteBalance',
         0xa404  =>  'DigitalZoomRatio',
-        0xa405  =>  'FocalLenghtIn36mmFilm',
+        0xa405  =>  'FocalLenghtIn35mmFilm',
         0xa406  =>  'SceneCaptureType',
         0xa407  =>  'GainControl',
         0xa408  =>  'Contrast',
