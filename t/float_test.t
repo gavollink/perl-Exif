@@ -1,7 +1,9 @@
 use Exif;
 
 MAIN: {
-    my $var = 0x3f828f5c;
+#perl -e printf( "0x%08X\n", unpack("L", pack("f", 1.02)) );
+#             0x3F828F5C
+    my $var = 0x3F828F5C;
     my $val = {};
     my $tt = {};
 
@@ -20,6 +22,8 @@ MAIN: {
     print( "\n\n");
 
 
+#perl -e printf( "0x%08X%08X\n", reverse( unpack("LL", pack("dd", 1.02))) );
+#          0x3FF051EB851EB852
     $var = 0x3FF051EB851EB852;
     printf( "_float8byte: 0x%016X\n\n", $var);
 
