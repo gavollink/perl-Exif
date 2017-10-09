@@ -715,6 +715,7 @@ sub readIFDTag {
         debug("Pusing SubIFD.a offset, $address");
         push @{$self->{'Exif_offset'}}, ( $address );
         push @{$self->{'Exif_titles'}}, ( "SubIFD.a" );
+        push @{$self->{'Exif_titles'}}, ( "SubIFD.a" );
     }
     elsif ( 0x829a == $tag ) {
         ####################################
@@ -740,6 +741,7 @@ sub readIFDTag {
         my $address = _bytesToInt( $val->{'v_byte'}, $endian, 0, 4 );
         debug("Pusing SubIFD.b offset, $address");
         push @{$self->{'Exif_offset'}}, ( $address );
+        push @{$self->{'Exif_titles'}}, ( "SubIFD.b" );
         push @{$self->{'Exif_titles'}}, ( "SubIFD.b" );
     }
     elsif ( 0x8825 == $tag && 4 == $fmt && 1 == $noc ) {
@@ -878,6 +880,7 @@ sub readIFDTag {
                 $self->{'MakerNote_offset'} = $address + 5;
             }
         }
+        push @{$self->{'Exif_titles'}}, ( "MakerNote" );
     }
     elsif ( 0xa005 == $tag && 7 == $fmt ) {
         ####################################
@@ -886,6 +889,7 @@ sub readIFDTag {
         debug( sprintf( "ExifInteroperabilityOffset: Read as IFD:\n") );
         debug("Pusing ExifInteroperabilityOffset offset, $address");
         push @{$self->{'Exif_offset'}}, ( $address );
+        push @{$self->{'Exif_titles'}}, ( "ExifInteroperabilityOffset" );
         push @{$self->{'Exif_titles'}}, ( "ExifInteroperabilityOffset" );
     }
     elsif ( 0xa000 == $tag ) {
@@ -1731,7 +1735,7 @@ sub _float4byte
     #### Calculation Constants
     my $signmask = 0x80000000;
     my $expomask = 0x7F800000;
-    my $bit23    = 0x00800000;
+    my $denomina = 0x00800000;
     my $mantmask = 0x007FFFFF;
 
     #### Build Sign
@@ -1742,14 +1746,16 @@ sub _float4byte
     $expo = ( 2 ** $expo );
 
     #### Create Mantissa
-    my $mant = (($new & $mantmask ) | $bit23);
-    $mant = ( $mant / $bit23 );
+    my $numerator = (($new & $mantmask ) | $denomina);
+    my $mant = ( $numerator / $denomina );
 
     #Assemble our float:
     my $ret = $sign * $expo * $mant;
 
     $val->{'sign'} = $sign;
     $val->{'exponent'} = $expo;
+    $val->{'numerator'} = $numerator;
+    $val->{'denominator'} = $denomina;
     $val->{'mantissa'} = $mant;
     $val->{'num'} = $ret;
     $val->{'out'} = sprintf("%.8g", $ret );
@@ -1774,7 +1780,7 @@ sub _float8byte
     #### Calculation Constants
     my $signmask = Math::BigInt->from_hex('0x8000000000000000');
     my $expomask = Math::BigInt->from_hex('0x7FF0000000000000');
-    my $bit52    = Math::BigInt->from_hex('0x0010000000000000');
+    my $denomina = Math::BigInt->from_hex('0x0010000000000000');
     my $mantmask = Math::BigInt->from_hex('0x000FFFFFFFFFFFFF');
 
     #### Build Sign
@@ -1783,19 +1789,20 @@ sub _float8byte
     $dosign = undef;
 
     #### Create Exponent
-    my $doexpo = Math::BigInt->new( $new )->band( $expomask )->bdiv( $bit52 )->bsub( 1023 );
+    my $doexpo = Math::BigInt->new( $new )->band( $expomask )->bdiv( $denomina )->bsub( 1023 );
     my $expo = Math::BigFloat->new( 2 )->bpow( $doexpo );
     $doexpo = undef;
 
     #### Create Mantissa
-    my $domant = Math::BigInt->new( $new )->band( $mantmask )->bior( $bit52 );
-    my $mant = Math::BigFloat->new( $domant )->bdiv($bit52);
-    $domant = undef;
+    my $numerator = Math::BigInt->new( $new )->band( $mantmask )->bior( $denomina );
+    my $mant = Math::BigFloat->new( $numerator )->bdiv($denomina);
 
     my $ret = Math::BigFloat->new( $sign )->bmul( $expo )->bmul( $mant );
 
     $val->{'sign'} = $sign;
     $val->{'exponent'} = $expo;
+    $val->{'numerator'} = $numerator;
+    $val->{'denominator'} = $denomina;
     $val->{'mantissa'} = $mant;
     $val->{'num'} = 0 + $ret;
     $val->{'out'} = sprintf("%.16lg", $ret);
