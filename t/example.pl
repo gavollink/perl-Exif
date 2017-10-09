@@ -8,15 +8,12 @@ my $opts;
 
 MAIN: {
     opts(@ARGV);
-
     my $fn = $opts->{'filename'};
     if ( ! -f $fn ) {
         die "File not found: $fn";
     }
 
-    my $res = Exif->new($opts);
-
-    print "Filename: $fn\n";
+    my $res = Exif->new({ filename => $fn });
 
     if ( $opts->{'verbose'} ) {
         print $Exif::ERROR;
@@ -36,7 +33,6 @@ sub opts
     if ( !$opts ) {
         $opts = {};
     }
-    $opts->{'verbose'} = 0;
 
     my $help = 0;
 
@@ -48,10 +44,10 @@ sub opts
             $opts->{'filename'} = $args[++$cx];
         }
         elsif ( q{-v} eq $args[$cx] ) {
-            $opts->{'verbose'}++;
+            $opts->{'verbose'} = 1;
         }
         elsif ( q{--verbose} eq $args[$cx] ) {
-            $opts->{'verbose'}++;
+            $opts->{'verbose'} = 1;
         }
         elsif ( q{-h} eq $args[$cx] ) {
             $help = 1;
