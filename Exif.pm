@@ -4,7 +4,7 @@
 #
 # Author: Gary Allen Vollink, (c) 2017
 # Revision (svn): $Revision$
-# $Date: 2018-04-27 07:45:11 -0400 (Fri, 27 Apr 2018) $
+# $Date$
 #
 ####
 #
