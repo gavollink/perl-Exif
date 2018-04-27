@@ -1,11 +1,16 @@
 #############################################################################
 #
 # Exif.pm
+#
+# Author: Gary Allen Vollink, (c) 2017
+# Revision (svn): $Rev$ $Date$
+#
 ####
 #
 # This is an Exif file format reader written in pure Perl.  Almost
 # portable, but 8-byte float-reading requires 64-bit support.
 #     ( at least the way I did it ).
+# I _did_ test the Endian stuff on a SPARC-sun-solaris to verify.
 #
 ####
 # Some comments are cut/paste from here:
@@ -1557,18 +1562,26 @@ sub _expValueFromStream {
             'v_addr' => $v_offset,
             'v_byte' => [ @{$buff}[ $v_offset .. $v_offset+3 ] ],
     };
-#    vdebug ( sprintf( "v_byte 0x%02x 0x%02x 0x%02x 0x%02x", 
-#        $val->{'v_byte'}->[0],
-#        $val->{'v_byte'}->[1],
-#        $val->{'v_byte'}->[2],
-#        $val->{'v_byte'}->[3] )
-#    );
 
     if ( 1 == $fmt ) {
-        #return q{unsigned byte};
-        $val->{'byte'} = [ $buff->[$v_offset] ];
-        $val->{'num'} = _bytesToInt ( $buff, $endian, $address, 1 );
-        $val->{'out'} = $val->{'num'};
+        # unsigned byte
+        my $v = $val;
+        my $o = $buff->{$v_offset};
+        if ( 4<$noc ) {
+            $address = _bytesToInt ( $buff, $endian, $address, 4 );
+            $o = $address;
+        }
+        foreach ( my $cx = 0; $cx<$noc; $cx++ ) {
+            $v->{'addr'} = [ ( $buff->[$o] ) ];
+            $v->{'byte'} = [ ( $buff->[$o] ) ];
+            $v->{'num'} = _bytesToInt ( $buff, $endian, $o, 1 );
+            $v->{'out'} = $v->{'num'};
+            if ( $noc>1+$cx ) {
+                $v->{'next'} = {};
+                $v = $v->{'next'};
+                $o++;
+            }
+        }
     }
     elsif ( 2 == $fmt ) {
         #return q{ascii strings};
