@@ -1,0 +1,58 @@
+# Gary Allen Vollink -- .perltidyrc for personal projects.
+#############################################################################
+--character-encoding=utf8           # -enc=utf8
+--standard-output                   # -st : Output to STDOUT
+--standard-error-output             # -se : Errors to STDERR
+--maximum-line-length=78            # -l : Set max line width to 78 cols
+                                    #      (from Perl Best Practices)
+--indent-columns=4                  # -i=4 : Set indent level to 4 cols
+--continuation-indentation=4        # -ci : Set cont-indent level to 4 cols
+#                           ## Newer Option Warning: -xci :
+--extended-continuation-indentation # -xci : Double extend on complex
+--vertical-tightness=2              # -vt=2 : Maximal vertical tightness
+--closing-token-indentation=0       # -cti=0 : No extra indentation 
+                                    #          for closing brackets
+--paren-tightness=1                 # -pt=1 : Medium parenthesis tightness
+--brace-tightness=1                 # -bt=1 : Medium brace tightness
+--square-bracket-tightness=1        # -sbt=1 : Medium square bracket tightness
+--block-brace-tightness=1           # -bbt=1 : Medium block brace tightness
+--nospace-for-semicolon             # -nsfs : No space before semicolons
+--nooutdent-long-lines              # -nolq : Don't outdent long quoted strings
+#                                     -wbb : Break before all operators:
+--want-break-before="% + - * / x != == >= <= =~ !~ < > | & >= < = **= += *= &= <<= &&= -= /= |= >>= ||= .= %= ^= x="
+#                           ## Newer Option Warning: -tso :
+--tight-secret-operators            # -tso
+--opening-sub-brace-on-new-line     # -sbl : sub func brace starts at col 0
+--nooutdent-long-lines              # -noll
+--nooutdent-long-comments           # -nolc
+--nooutdent-labels                  # -nola
+--nooutdent-keywords                # -nokw
+--nooutdent-static-block-comments   # -nosbc
+--nodelete-semicolons               # -ndsm
+--noblanks-before-comments          # -nbbc : Do not force a blank line
+                                    #       before a block comment
+--noindent-block-comments           # -nibc
+--indent-spaced-block-comments      # -isbc
+--fixed-position-side-comment=41    # -fpsc=41
+--hanging-side-comments             # -hsc
+--closing-side-comments             # -csc ( -csci=6 lines min )
+--trim-pod                          # -trp
+########################################
+# NOTE on --cuddled-blocks : I like
+#     ''} else {''
+# but I like the output of --closing-side-comments even more, and
+# if -ce|-cb cuddles an else, I don't get a closing-side-comment.
+##
+# Also, I vehemently dislike
+#    ''} elsif ( blah blah ) {''
+# so if cbl and cblx are not around, I definitely don't want the old
+# -ce behavior.
+##
+# Anyway, that is why this is and will remain commented out:
+########################################
+#                           ## Newer Option Warning: -cb (-ce is old) :
+#--cuddled-blocks                    # -cb|-ce|--cuddled-else
+#                           ## Newer Option Warning: -cbl :
+#--cuddled-block-list="else"         # -cbl   set -cb
+#                           ## Newer Option Warning: -cblx :
+#--cuddled-block-list-exclusive      # -cblx  make set exclusive
